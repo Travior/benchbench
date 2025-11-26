@@ -57,6 +57,7 @@ class TaskRunner:
 
             # Run validation if available
             validation: ValidationResult | None = None
+            error: str | None = None
             if task.validator is not None:
                 try:
                     validation = await task.validator(output)
@@ -65,6 +66,8 @@ class TaskRunner:
                     validation = ValidationResult(
                         passed=False, score=0.0, reason=f"Validation error: {e}"
                     )
+                    error = str(e)
+
 
             return TaskRun(
                 task_id=task.task_id,
@@ -72,6 +75,7 @@ class TaskRunner:
                 output=output,
                 validation=validation,
                 duration_ms=duration_ms,
+                error=error
             )
 
         except Exception as e:
