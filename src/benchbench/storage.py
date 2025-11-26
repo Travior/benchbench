@@ -23,6 +23,9 @@ import duckdb
 
 from benchbench.task import Task, TaskRun
 
+# Current schema version - bump this when adding migrations
+SCHEMA_VERSION = "0.2.0"
+
 
 class BenchmarkStorage:
     """DuckDB-backed storage for benchmark results."""
@@ -40,6 +43,14 @@ class BenchmarkStorage:
 
     def _init_schema(self) -> None:
         """Create tables if they don't exist."""
+        # Schema version tracking
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version VARCHAR PRIMARY KEY,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 task_id VARCHAR PRIMARY KEY,
@@ -65,10 +76,42 @@ class BenchmarkStorage:
                 validation_score DOUBLE,
                 validation_reason VARCHAR,
                 validation_metadata JSON,
+                validation_pending BOOLEAN DEFAULT FALSE,
+                validation_rubric VARCHAR,
                 run_config JSON,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # For new databases, mark as current version
+        existing = self.conn.execute(
+            "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
+        ).fetchone()
+        if existing is None:
+            # Check if this is a fresh DB (no task_runs) or existing pre-versioning DB
+            has_runs = self.conn.execute("SELECT COUNT(*) FROM task_runs").fetchone()
+            if has_runs and has_runs[0] == 0:
+                # Fresh database - mark as current version
+                self.conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)",
+                    [SCHEMA_VERSION]
+                )
+
+    def get_schema_version(self) -> str | None:
+        """
+        Get the current schema version from the database.
+        
+        Returns:
+            Version string (e.g., "0.2.0") or None if pre-versioning database.
+        """
+        try:
+            result = self.conn.execute(
+                "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
+            ).fetchone()
+            return result[0] if result else None
+        except duckdb.CatalogException:
+            # schema_version table doesn't exist - pre-versioning database
+            return None
 
     def close(self) -> None:
         """Close the database connection."""
@@ -175,19 +218,23 @@ class BenchmarkStorage:
         validation_score = None
         validation_reason = None
         validation_metadata = None
+        validation_pending = False
+        validation_rubric = None
         
         if task_run.validation is not None:
             validation_passed = task_run.validation.passed
             validation_score = task_run.validation.score
             validation_reason = task_run.validation.reason
             validation_metadata = task_run.validation.metadata
+            validation_pending = task_run.validation.pending
+            validation_rubric = task_run.validation.rubric
 
         self.conn.execute("""
             INSERT INTO task_runs (
                 execution_id, task_id, messages_hash, model, output, duration_ms,
                 error, validation_passed, validation_score, validation_reason,
-                validation_metadata, run_config
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                validation_metadata, validation_pending, validation_rubric, run_config
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (execution_id) DO UPDATE SET
                 output = EXCLUDED.output,
                 duration_ms = EXCLUDED.duration_ms,
@@ -196,6 +243,8 @@ class BenchmarkStorage:
                 validation_score = EXCLUDED.validation_score,
                 validation_reason = EXCLUDED.validation_reason,
                 validation_metadata = EXCLUDED.validation_metadata,
+                validation_pending = EXCLUDED.validation_pending,
+                validation_rubric = EXCLUDED.validation_rubric,
                 run_config = EXCLUDED.run_config
         """, [
             execution_id,
@@ -209,6 +258,8 @@ class BenchmarkStorage:
             validation_score,
             validation_reason,
             json.dumps(validation_metadata) if validation_metadata else None,
+            validation_pending,
+            validation_rubric,
             json.dumps(run_config) if run_config else None,
         ])
 
@@ -283,3 +334,69 @@ class BenchmarkStorage:
         
         columns = [desc[0] for desc in result.description]
         return [dict(zip(columns, row)) for row in result.fetchall()]
+
+    def get_pending_grades(self) -> list[dict]:
+        """
+        Get all task runs awaiting manual grading.
+        
+        Returns:
+            List of task run records with pending=True, including task metadata.
+        """
+        result = self.conn.execute("""
+            SELECT 
+                tr.execution_id,
+                tr.task_id,
+                tr.model,
+                tr.output,
+                tr.validation_rubric,
+                tr.created_at,
+                t.display_name,
+                t.id_chain,
+                t.path
+            FROM task_runs tr
+            LEFT JOIN tasks t ON tr.task_id = t.task_id
+            WHERE tr.validation_pending = TRUE
+              AND tr.error IS NULL
+            ORDER BY tr.created_at ASC
+        """)
+        
+        columns = [desc[0] for desc in result.description]
+        return [dict(zip(columns, row)) for row in result.fetchall()]
+
+    def get_pending_count(self) -> int:
+        """Get the count of task runs awaiting manual grading."""
+        result = self.conn.execute("""
+            SELECT COUNT(*) 
+            FROM task_runs 
+            WHERE validation_pending = TRUE 
+              AND error IS NULL
+        """).fetchone()
+        return result[0] if result else 0
+
+    def update_grade(
+        self,
+        execution_id: str,
+        score: float,
+        reason: str | None = None,
+    ) -> None:
+        """
+        Update a pending task run with a manual grade.
+        
+        Args:
+            execution_id: The execution ID to update.
+            score: The grade (0.0, 0.5, or 1.0).
+            reason: Optional reason for the grade.
+        """
+        if score not in (0.0, 0.5, 1.0):
+            raise ValueError(f"Score must be 0.0, 0.5, or 1.0, got {score}")
+        
+        passed = score == 1.0
+        
+        self.conn.execute("""
+            UPDATE task_runs
+            SET validation_passed = ?,
+                validation_score = ?,
+                validation_reason = ?,
+                validation_pending = FALSE
+            WHERE execution_id = ?
+        """, [passed, score, reason, execution_id])

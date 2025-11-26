@@ -5,11 +5,13 @@ bench db command: Database management subcommands.
 from pathlib import Path
 
 import click
+import duckdb
 from rich.console import Console
 from rich.table import Table
 
 from benchbench.discovery import discover_tasks
 from benchbench.storage import BenchmarkStorage
+from benchbench.migrations import get_pending_migrations, get_current_version, record_migration
 
 console = Console()
 
@@ -40,12 +42,16 @@ def info(db_path: str) -> None:
         return
 
     with BenchmarkStorage(db_path) as storage:
+        # Get schema version
+        schema_version = storage.get_schema_version()
+        
         # Get counts
         task_count = storage.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
         run_count = storage.conn.execute("SELECT COUNT(*) FROM task_runs").fetchone()[0]
         error_count = storage.conn.execute(
             "SELECT COUNT(*) FROM task_runs WHERE error IS NOT NULL"
         ).fetchone()[0]
+        pending_count = storage.get_pending_count()
 
         # Get model breakdown
         models = storage.conn.execute(
@@ -62,6 +68,7 @@ def info(db_path: str) -> None:
             size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
 
     console.print(f"[bold]Database:[/bold] {db_path}")
+    console.print(f"[bold]Schema version:[/bold] {schema_version or '0.1.0 (pre-versioning)'}")
     console.print(f"[bold]Size:[/bold] {size_str}")
     console.print()
 
@@ -72,6 +79,7 @@ def info(db_path: str) -> None:
     table.add_row("Tasks", str(task_count))
     table.add_row("Total Runs", str(run_count))
     table.add_row("Errors", str(error_count))
+    table.add_row("Pending Grades", str(pending_count))
 
     console.print(table)
 
@@ -284,3 +292,87 @@ def prune(db_path: str, tasks_dir: str, yes: bool) -> None:
         )
 
         console.print(f"[green]Removed {count} runs and {len(orphaned_task_ids)} task entries.[/green]")
+
+
+@db.command()
+@click.option(
+    "--db",
+    "db_path",
+    default="benchmarks.duckdb",
+    show_default=True,
+    help="Path to the DuckDB database file.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what migrations would be applied without running them.",
+)
+def migrate(db_path: str, dry_run: bool) -> None:
+    """
+    Apply database migrations.
+
+    Upgrades the database schema to the latest version. Run this after
+    upgrading benchbench to apply any schema changes.
+
+    Examples:
+
+        bench db migrate
+
+        bench db migrate --dry-run
+    """
+    path = Path(db_path)
+    if not path.exists():
+        console.print(f"[yellow]Database not found:[/yellow] {db_path}")
+        console.print("No migrations needed for new databases.")
+        return
+
+    console.print(f"[bold]Database:[/bold] {db_path}")
+
+    # Connect directly to check schema and apply migrations
+    conn = duckdb.connect(str(path))
+    
+    try:
+        current_version = get_current_version(conn)
+        console.print(f"[bold]Current version:[/bold] {current_version or '0.1.0 (pre-versioning)'}")
+        console.print()
+        
+        pending = get_pending_migrations(current_version)
+        
+        if not pending:
+            console.print("[green]Database is up to date.[/green]")
+            return
+        
+        # Show pending migrations
+        console.print(f"Found [yellow]{len(pending)}[/yellow] pending migration(s):")
+        console.print()
+        
+        table = Table()
+        table.add_column("Version", style="cyan")
+        table.add_column("Description")
+        
+        for m in pending:
+            table.add_row(m.version, m.description)
+        
+        console.print(table)
+        console.print()
+        
+        if dry_run:
+            console.print("[dim]Dry run - no changes made.[/dim]")
+            return
+        
+        # Apply migrations
+        for migration in pending:
+            console.print(f"Applying migration [cyan]{migration.version}[/cyan]...")
+            try:
+                migration.migrate(conn)
+                record_migration(conn, migration.version)
+                console.print(f"  [green]Done.[/green]")
+            except Exception as e:
+                console.print(f"  [red]Failed:[/red] {e}")
+                raise SystemExit(1)
+        
+        console.print()
+        console.print("[green]All migrations applied successfully.[/green]")
+        
+    finally:
+        conn.close()

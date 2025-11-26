@@ -202,6 +202,7 @@ def run(
         failed = sum(1 for r in results if r.validation and not r.validation.passed)
         errors = sum(1 for r in results if r.error)
         no_validation = sum(1 for r in results if not r.validation and not r.error)
+        pending = sum(1 for r in results if r.validation and r.validation.pending)
 
         console.print()
         console.print("[bold]Results:[/bold]")
@@ -211,8 +212,12 @@ def run(
             console.print(f"  [red]{failed} failed[/red]")
         if errors:
             console.print(f"  [red]{errors} errors[/red]")
+        if pending:
+            console.print(f"  [yellow]{pending} pending manual grading[/yellow]")
         if no_validation:
             console.print(f"  [dim]{no_validation} no validation[/dim]")
 
         console.print()
+        if pending:
+            console.print("Use 'bench grade' to grade pending results.")
         console.print("Use 'bench show' to view detailed results.")
