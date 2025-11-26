@@ -31,5 +31,7 @@ def migrate(conn: duckdb.DuckDBPyConnection) -> None:
             ALTER TABLE task_runs 
             ADD COLUMN IF NOT EXISTS validation_rubric VARCHAR
         """)
+        conn.execute("COMMIT")
     except duckdb.Error:
         conn.execute("ROLLBACK")
+        raise
