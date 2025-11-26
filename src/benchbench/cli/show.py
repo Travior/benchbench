@@ -67,6 +67,15 @@ def show(
         raise SystemExit(1)
 
     with storage:
+        # Check for pending grades
+        pending_count = storage.get_pending_count()
+        if pending_count > 0:
+            console.print(
+                f"[yellow]Note:[/yellow] {pending_count} result(s) awaiting manual grading. "
+                "Run 'bench grade' to grade them."
+            )
+            console.print()
+        
         if by_model:
             _show_by_model(storage, model_filter)
         else:
