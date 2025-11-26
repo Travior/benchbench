@@ -19,13 +19,17 @@ def migrate(conn: duckdb.DuckDBPyConnection) -> None:
     - validation_rubric: Instructions for the human grader
     """
     # Add validation_pending column
-    conn.execute("""
-        ALTER TABLE task_runs 
-        ADD COLUMN IF NOT EXISTS validation_pending BOOLEAN DEFAULT FALSE
-    """)
+    conn.execute("BEGIN TRANSACTION")
+    try:
+        conn.execute("""
+            ALTER TABLE task_runs 
+            ADD COLUMN IF NOT EXISTS validation_pending BOOLEAN DEFAULT FALSE
+        """)
     
-    # Add validation_rubric column  
-    conn.execute("""
-        ALTER TABLE task_runs 
-        ADD COLUMN IF NOT EXISTS validation_rubric VARCHAR
-    """)
+        # Add validation_rubric column  
+        conn.execute("""
+            ALTER TABLE task_runs 
+            ADD COLUMN IF NOT EXISTS validation_rubric VARCHAR
+        """)
+    except duckdb.Error:
+        conn.execute("ROLLBACK")
