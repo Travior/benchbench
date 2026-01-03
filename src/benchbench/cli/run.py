@@ -6,13 +6,19 @@ from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+)
 
+from benchbench.cli.filtering import filter_tasks
 from benchbench.discovery import discover_tasks
 from benchbench.models import Model
-from benchbench.runner import TaskRunner, RunConfig
+from benchbench.runner import RunConfig, TaskRunner
 from benchbench.storage import BenchmarkStorage
-from benchbench.cli.filtering import filter_tasks
 
 console = Console()
 
@@ -139,7 +145,9 @@ def run(
         for task in tasks:
             storage.upsert_task(task)
 
-        missing = storage.get_missing_executions(tasks, [m.value for m in resolved_models])
+        missing = storage.get_missing_executions(
+            tasks, [m.value for m in resolved_models]
+        )
 
         if not missing:
             console.print("[green]All benchmarks already completed![/green]")
@@ -152,11 +160,10 @@ def run(
             f"{len(tasks) * len(resolved_models) - len(missing)} cached)"
         )
 
-        # Build task lookup for results
-        task_lookup = {t.task_id: t for t in tasks}
-
         # Run benchmarks with progress display
-        runner = TaskRunner(RunConfig(temperature=temperature, max_concurrency=concurrency))
+        runner = TaskRunner(
+            RunConfig(temperature=temperature, max_concurrency=concurrency)
+        )
 
         # Group missing by task for cleaner execution
         tasks_to_run = []
@@ -185,7 +192,9 @@ def run(
                 async def run_single(task, model):
                     async with semaphore:
                         result = await runner.run_task(task, model)
-                        storage.save_task_run(task, result, {"temperature": temperature})
+                        storage.save_task_run(
+                            task, result, {"temperature": temperature}
+                        )
                         progress.advance(task_id)
                         return result
 
@@ -199,7 +208,11 @@ def run(
 
         # Summary
         passed = sum(1 for r in results if r.validation and r.validation.passed)
-        failed = sum(1 for r in results if r.validation and not r.validation.passed)
+        failed = sum(
+            1
+            for r in results
+            if r.validation and not r.validation.passed and not r.validation.pending
+        )
         errors = sum(1 for r in results if r.error)
         no_validation = sum(1 for r in results if not r.validation and not r.error)
         pending = sum(1 for r in results if r.validation and r.validation.pending)

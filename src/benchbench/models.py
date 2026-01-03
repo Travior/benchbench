@@ -27,6 +27,18 @@ import litellm
 class Model(StrEnum):
     # OpenRouter
     GPT_51_NANO_OR = "openrouter/openai/gpt-5-nano"
+    GROK_41_FAST_OR = "openrouter/x-ai/grok-4.1-fast"
+    SONNET_45_OR = "openrouter/anthropic/claude-sonnet-4.5"
+    GEMINI_3_OR = "openrouter/google/gemini-3-pro-preview"
+    GEMINI_3_FLASH_OR = "openrouter/google/gemini-3-flash-preview"
+
+    OPUS_45_OR = "openrouter/anthropic/claude-opus-4.5"
+
+    GPT_52_OR = "openrouter/openai/gpt-5.2"
+
+    GLM_47_OR = "openrouter/z-ai/glm-4.7"
+
+    MINIMAX_21_OR = "openrouter/minimax/minimax-m2.1"
 
 
 def get_async_client() -> instructor.AsyncInstructor:

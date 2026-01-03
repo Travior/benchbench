@@ -23,7 +23,7 @@ console = Console()
     "--filter",
     "filters",
     multiple=True,
-    help="Filter by id_chain glob pattern (only applies to --by-task).",
+    help="Filter by id_chain glob pattern.",
 )
 @click.option(
     "--model",
@@ -77,14 +77,14 @@ def show(
             console.print()
         
         if by_model:
-            _show_by_model(storage, model_filter)
+            _show_by_model(storage, list(filters), model_filter)
         else:
             _show_by_task(storage, list(filters), model_filter)
 
 
-def _show_by_model(storage: BenchmarkStorage, model_filter: str | None) -> None:
+def _show_by_model(storage: BenchmarkStorage, filters: list[str], model_filter: str | None) -> None:
     """Display results grouped by model."""
-    summary = storage.get_summary_by_model()
+    summary = storage.get_summary_by_model(id_chain_patterns=filters if filters else None)
 
     if model_filter:
         model_filter_lower = model_filter.lower()

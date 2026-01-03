@@ -5,14 +5,14 @@ Supports concurrent execution via asyncio.
 """
 
 import asyncio
-import time
 import logging
+import time
 from dataclasses import dataclass
 
 import litellm
 
-from benchbench.task import Task, TaskRun
 from benchbench.models import Model
+from benchbench.task import Task, TaskRun
 from benchbench.validation import ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,9 @@ class TaskRunner:
         start_time = time.perf_counter()
 
         # Convert task messages to litellm format
-        messages = [{"role": msg.role.value, "content": msg.content} for msg in task.messages]
+        messages = [
+            {"role": msg.role.value, "content": msg.content} for msg in task.messages
+        ]
 
         try:
             response = await litellm.acompletion(
@@ -50,6 +52,7 @@ class TaskRunner:
                 messages=messages,
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
+                reasoning={"enabled": True},
             )
 
             output = response.choices[0].message.content or ""  # type: ignore[union-attr]
@@ -68,14 +71,13 @@ class TaskRunner:
                     )
                     error = str(e)
 
-
             return TaskRun(
                 task_id=task.task_id,
                 model=model.value,
                 output=output,
                 validation=validation,
                 duration_ms=duration_ms,
-                error=error
+                error=error,
             )
 
         except Exception as e:
@@ -89,9 +91,7 @@ class TaskRunner:
                 error=str(e),
             )
 
-    async def run_tasks(
-        self, tasks: list[Task], models: list[Model]
-    ) -> list[TaskRun]:
+    async def run_tasks(self, tasks: list[Task], models: list[Model]) -> list[TaskRun]:
         """
         Run multiple tasks against multiple models concurrently.
 
@@ -112,8 +112,6 @@ class TaskRunner:
         results = await asyncio.gather(*coroutines)
         return list(results)
 
-    def run_tasks_sync(
-        self, tasks: list[Task], models: list[Model]
-    ) -> list[TaskRun]:
+    def run_tasks_sync(self, tasks: list[Task], models: list[Model]) -> list[TaskRun]:
         """Synchronous wrapper for run_tasks."""
         return asyncio.run(self.run_tasks(tasks, models))

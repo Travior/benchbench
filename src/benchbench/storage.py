@@ -298,20 +298,72 @@ class BenchmarkStorage:
         
         return [dict(zip(columns, row)) for row in result.fetchall()]
 
-    def get_summary_by_model(self) -> list[dict]:
+    def get_summary_by_model(self, id_chain_patterns: list[str] | None = None) -> list[dict]:
         """Get aggregated results grouped by model."""
-        result = self.conn.execute("""
-            SELECT 
-                model,
-                COUNT(*) as total_runs,
-                SUM(CASE WHEN validation_passed THEN 1 ELSE 0 END) as passed,
-                AVG(validation_score) as avg_score,
-                AVG(duration_ms) as avg_duration_ms
-            FROM task_runs
-            WHERE error IS NULL
-            GROUP BY model
-            ORDER BY avg_score DESC
-        """)
+        if id_chain_patterns:
+            from benchbench.cli.filtering import matches_filter
+            from benchbench.task import Task
+            from pathlib import Path
+            
+            # Get task id_chains for filtering
+            task_id_chains = self.conn.execute("""
+                SELECT tr.task_id, t.id_chain
+                FROM task_runs tr
+                LEFT JOIN tasks t ON tr.task_id = t.task_id
+                WHERE tr.error IS NULL
+            """).fetchall()
+            
+            # Build a mapping of task_id to matching patterns
+            # Create minimal Task objects to use matches_filter
+            task_matches_pattern = {}
+            for task_id, id_chain in task_id_chains:
+                if id_chain:
+                    # Create a minimal Task object for filtering
+                    task = Task(path=Path(""), id_chain=id_chain, messages=[])
+                    task_matches_pattern[task_id] = any(matches_filter(task, p) for p in id_chain_patterns)
+                else:
+                    task_matches_pattern[task_id] = False
+            
+            # Filter runs by matching tasks
+            if task_matches_pattern:
+                matching_task_ids = [tid for tid, matches in task_matches_pattern.items() if matches]
+                result = self.conn.execute("""
+                    SELECT 
+                        model,
+                        COUNT(*) as total_runs,
+                        SUM(CASE WHEN validation_passed THEN 1 ELSE 0 END) as passed,
+                        AVG(validation_score) as avg_score,
+                        AVG(duration_ms) as avg_duration_ms
+                    FROM task_runs
+                    WHERE error IS NULL AND task_id IN (SELECT UNNEST(?::VARCHAR[]))
+                    GROUP BY model
+                    ORDER BY avg_score DESC
+                """, [matching_task_ids])
+            else:
+                # No matches, return empty result
+                result = self.conn.execute("""
+                    SELECT 
+                        model,
+                        0 as total_runs,
+                        0 as passed,
+                        NULL as avg_score,
+                        NULL as avg_duration_ms
+                    FROM task_runs
+                    WHERE FALSE
+                """)
+        else:
+            result = self.conn.execute("""
+                SELECT 
+                    model,
+                    COUNT(*) as total_runs,
+                    SUM(CASE WHEN validation_passed THEN 1 ELSE 0 END) as passed,
+                    AVG(validation_score) as avg_score,
+                    AVG(duration_ms) as avg_duration_ms
+                FROM task_runs
+                WHERE error IS NULL
+                GROUP BY model
+                ORDER BY avg_score DESC
+            """)
         
         columns = [desc[0] for desc in result.description]
         return [dict(zip(columns, row)) for row in result.fetchall()]
