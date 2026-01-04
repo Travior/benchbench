@@ -182,10 +182,14 @@ class TestBenchmarkStorage:
         storage.upsert_task(task1)
         storage.upsert_task(task2)
         
-        count = storage.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        count_result = storage.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()
+        assert count_result is not None
+        count = count_result[0]
         assert count == 1
         
-        path = storage.conn.execute("SELECT path FROM tasks").fetchone()[0]
+        path_result = storage.conn.execute("SELECT path FROM tasks").fetchone()
+        assert path_result is not None
+        path = path_result[0]
         assert path == "/path2"  # Updated to second task's path
 
 
@@ -277,6 +281,7 @@ class TestSaveTaskRun:
             "SELECT model, output, duration_ms FROM task_runs WHERE execution_id = ?",
             [exec_id]
         ).fetchone()
+        assert result is not None
         
         assert result[0] == "test-model"
         assert result[1] == "Hello, world!"
@@ -307,6 +312,7 @@ class TestSaveTaskRun:
                FROM task_runs WHERE execution_id = ?""",
             [exec_id]
         ).fetchone()
+        assert result is not None
         
         assert result[0] is True
         assert result[1] == 0.95
@@ -330,6 +336,7 @@ class TestSaveTaskRun:
             "SELECT error FROM task_runs WHERE execution_id = ?",
             [exec_id]
         ).fetchone()
+        assert result is not None
         
         assert result[0] == "API timeout"
 
@@ -351,6 +358,7 @@ class TestSaveTaskRun:
             "SELECT run_config FROM task_runs WHERE execution_id = ?",
             [exec_id]
         ).fetchone()
+        assert result is not None
         
         assert result[0] is not None
 
@@ -408,3 +416,86 @@ class TestQueryMethods:
         assert summary[0]["model"] == "model1"
         assert summary[0]["total_runs"] == 1
         assert summary[0]["avg_score"] == 0.9
+
+    def test_get_summary_by_task_filters_by_model_substring(
+        self,
+        storage: BenchmarkStorage,
+        sample_task: Task,
+    ):
+        """Task summary model filter should support partial model names."""
+        storage.upsert_task(sample_task)
+
+        for model in [
+            "openrouter/openai/gpt-5.2",
+            "openrouter/anthropic/claude-opus-4.6",
+        ]:
+            task_run = TaskRun(
+                task_id=sample_task.task_id,
+                model=model,
+                output="output",
+                duration_ms=100.0,
+            )
+            storage.save_task_run(sample_task, task_run)
+
+        summary = storage.get_summary_by_task(model_filter="gpt-5.2")
+
+        assert len(summary) == 1
+        assert summary[0]["task_id"] == sample_task.task_id
+        assert summary[0]["total_runs"] == 1
+
+    def test_get_task_runs_for_display_composes_model_and_task_filters(
+        self,
+        storage: BenchmarkStorage,
+        sample_messages: list[Message],
+    ):
+        """Display rows should apply model and id_chain filters together."""
+        task_alpha = Task(
+            path=Path("/alpha"),
+            id_chain=["alpha", "first"],
+            messages=sample_messages,
+        )
+        task_beta = Task(
+            path=Path("/beta"),
+            id_chain=["beta", "second"],
+            messages=[Message(role=Roles.user, content="different")],
+        )
+
+        storage.upsert_task(task_alpha)
+        storage.upsert_task(task_beta)
+
+        storage.save_task_run(
+            task_alpha,
+            TaskRun(
+                task_id=task_alpha.task_id,
+                model="openrouter/openai/gpt-5.2",
+                output="output",
+                duration_ms=100.0,
+            ),
+        )
+        storage.save_task_run(
+            task_beta,
+            TaskRun(
+                task_id=task_beta.task_id,
+                model="openrouter/openai/gpt-5.2",
+                output="output",
+                duration_ms=100.0,
+            ),
+        )
+        storage.save_task_run(
+            task_alpha,
+            TaskRun(
+                task_id=task_alpha.task_id,
+                model="openrouter/anthropic/claude-opus-4.6",
+                output="output",
+                duration_ms=100.0,
+            ),
+        )
+
+        rows = storage.get_task_runs_for_display(
+            id_chain_patterns=["alpha::*"],
+            model_filter="gpt-5.2",
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["task_id"] == task_alpha.task_id
+        assert rows[0]["model"] == "openrouter/openai/gpt-5.2"

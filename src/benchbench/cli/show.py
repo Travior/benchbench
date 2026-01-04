@@ -84,14 +84,10 @@ def show(
 
 def _show_by_model(storage: BenchmarkStorage, filters: list[str], model_filter: str | None) -> None:
     """Display results grouped by model."""
-    summary = storage.get_summary_by_model(id_chain_patterns=filters if filters else None)
-
-    if model_filter:
-        model_filter_lower = model_filter.lower()
-        summary = [
-            s for s in summary
-            if model_filter_lower in s["model"].lower()
-        ]
+    summary = storage.get_summary_by_model(
+        id_chain_patterns=filters if filters else None,
+        model_filter=model_filter,
+    )
 
     if not summary:
         console.print("[yellow]No results found.[/yellow]")
@@ -133,44 +129,13 @@ def _show_by_task(
     model_filter: str | None,
 ) -> None:
     """Display results grouped by task."""
-    # Get detailed task runs for filtering
-    runs = storage.get_task_runs(model=model_filter)
-
-    if not runs:
-        console.print("[yellow]No results found.[/yellow]")
-        return
-
-    # If filters are provided, we need to filter by id_chain
-    # This requires joining with the tasks table
     if filters:
-        # Get task info to filter
-        task_runs = storage.conn.execute("""
-            SELECT 
-                t.display_name,
-                t.id_chain,
-                tr.task_id,
-                tr.model,
-                tr.validation_passed,
-                tr.validation_score,
-                tr.duration_ms,
-                tr.error
-            FROM task_runs tr
-            LEFT JOIN tasks t ON tr.task_id = t.task_id
-            WHERE tr.error IS NULL
-            ORDER BY t.display_name, tr.model
-        """).fetchall()
+        runs = storage.get_task_runs_for_display(
+            id_chain_patterns=filters,
+            model_filter=model_filter,
+        )
 
-        # Filter by id_chain patterns
-        import fnmatch
-        filtered_runs = []
-        for row in task_runs:
-            id_chain = row[1]  # id_chain array
-            if id_chain:
-                id_chain_str = "::".join(id_chain)
-                if any(fnmatch.fnmatch(id_chain_str, p) for p in filters):
-                    filtered_runs.append(row)
-
-        if not filtered_runs:
+        if not runs:
             console.print("[yellow]No results match the specified filters.[/yellow]")
             return
 
@@ -181,19 +146,19 @@ def _show_by_task(
         table.add_column("Score", justify="right")
         table.add_column("Duration", justify="right", style="dim")
 
-        for row in filtered_runs:
-            display_name = row[0] or row[2][:8]  # fallback to task_id
-            model = row[3].split("/")[-1]
-            passed = "[green]Yes[/green]" if row[4] else "[red]No[/red]"
-            score = f"{row[5]:.2f}" if row[5] is not None else "-"
-            duration = f"{row[6]:.0f}ms" if row[6] else "-"
+        for row in runs:
+            display_name = row["display_name"] or row["task_id"][:8]
+            model = row["model"].split("/")[-1]
+            passed = "[green]Yes[/green]" if row["validation_passed"] else "[red]No[/red]"
+            score = f"{row['validation_score']:.2f}" if row["validation_score"] is not None else "-"
+            duration = f"{row['duration_ms']:.0f}ms" if row["duration_ms"] else "-"
 
             table.add_row(display_name, model, passed, score, duration)
 
         console.print(table)
     else:
         # Show aggregated by task
-        summary = storage.get_summary_by_task()
+        summary = storage.get_summary_by_task(model_filter=model_filter)
 
         if not summary:
             console.print("[yellow]No results found.[/yellow]")

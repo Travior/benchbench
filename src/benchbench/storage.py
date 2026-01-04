@@ -298,79 +298,89 @@ class BenchmarkStorage:
         
         return [dict(zip(columns, row)) for row in result.fetchall()]
 
-    def get_summary_by_model(self, id_chain_patterns: list[str] | None = None) -> list[dict]:
+    def _get_matching_task_ids(self, id_chain_patterns: list[str]) -> list[str]:
+        """Return task IDs whose id_chain matches any provided pattern."""
+        from pathlib import Path
+
+        from benchbench.cli.filtering import matches_filter
+
+        task_rows = self.conn.execute("""
+            SELECT task_id, id_chain
+            FROM tasks
+        """).fetchall()
+
+        matching_task_ids: list[str] = []
+        for task_id, id_chain in task_rows:
+            if not id_chain:
+                continue
+
+            task = Task(path=Path(""), id_chain=id_chain, messages=[])
+            if any(matches_filter(task, pattern) for pattern in id_chain_patterns):
+                matching_task_ids.append(task_id)
+
+        return matching_task_ids
+
+    def get_summary_by_model(
+        self,
+        id_chain_patterns: list[str] | None = None,
+        model_filter: str | None = None,
+    ) -> list[dict]:
         """Get aggregated results grouped by model."""
+        where_clauses = ["error IS NULL"]
+        params: list = []
+
+        if model_filter:
+            where_clauses.append("LOWER(model) LIKE ?")
+            params.append(f"%{model_filter.lower()}%")
+
         if id_chain_patterns:
-            from benchbench.cli.filtering import matches_filter
-            from benchbench.task import Task
-            from pathlib import Path
-            
-            # Get task id_chains for filtering
-            task_id_chains = self.conn.execute("""
-                SELECT tr.task_id, t.id_chain
-                FROM task_runs tr
-                LEFT JOIN tasks t ON tr.task_id = t.task_id
-                WHERE tr.error IS NULL
-            """).fetchall()
-            
-            # Build a mapping of task_id to matching patterns
-            # Create minimal Task objects to use matches_filter
-            task_matches_pattern = {}
-            for task_id, id_chain in task_id_chains:
-                if id_chain:
-                    # Create a minimal Task object for filtering
-                    task = Task(path=Path(""), id_chain=id_chain, messages=[])
-                    task_matches_pattern[task_id] = any(matches_filter(task, p) for p in id_chain_patterns)
-                else:
-                    task_matches_pattern[task_id] = False
-            
-            # Filter runs by matching tasks
-            if task_matches_pattern:
-                matching_task_ids = [tid for tid, matches in task_matches_pattern.items() if matches]
-                result = self.conn.execute("""
-                    SELECT 
-                        model,
-                        COUNT(*) as total_runs,
-                        SUM(CASE WHEN validation_passed THEN 1 ELSE 0 END) as passed,
-                        AVG(validation_score) as avg_score,
-                        AVG(duration_ms) as avg_duration_ms
-                    FROM task_runs
-                    WHERE error IS NULL AND task_id IN (SELECT UNNEST(?::VARCHAR[]))
-                    GROUP BY model
-                    ORDER BY avg_score DESC
-                """, [matching_task_ids])
-            else:
-                # No matches, return empty result
-                result = self.conn.execute("""
-                    SELECT 
-                        model,
-                        0 as total_runs,
-                        0 as passed,
-                        NULL as avg_score,
-                        NULL as avg_duration_ms
-                    FROM task_runs
-                    WHERE FALSE
-                """)
-        else:
-            result = self.conn.execute("""
-                SELECT 
-                    model,
-                    COUNT(*) as total_runs,
-                    SUM(CASE WHEN validation_passed THEN 1 ELSE 0 END) as passed,
-                    AVG(validation_score) as avg_score,
-                    AVG(duration_ms) as avg_duration_ms
-                FROM task_runs
-                WHERE error IS NULL
-                GROUP BY model
-                ORDER BY avg_score DESC
-            """)
+            matching_task_ids = self._get_matching_task_ids(id_chain_patterns)
+            if not matching_task_ids:
+                return []
+            where_clauses.append("task_id IN (SELECT UNNEST(?::VARCHAR[]))")
+            params.append(matching_task_ids)
+
+        where_sql = " AND ".join(where_clauses)
+
+        result = self.conn.execute(f"""
+            SELECT 
+                model,
+                COUNT(*) as total_runs,
+                SUM(CASE WHEN validation_passed THEN 1 ELSE 0 END) as passed,
+                AVG(validation_score) as avg_score,
+                AVG(duration_ms) as avg_duration_ms
+            FROM task_runs
+            WHERE {where_sql}
+            GROUP BY model
+            ORDER BY avg_score DESC
+        """, params)
         
         columns = [desc[0] for desc in result.description]
         return [dict(zip(columns, row)) for row in result.fetchall()]
 
-    def get_summary_by_task(self) -> list[dict]:
+    def get_summary_by_task(
+        self,
+        id_chain_patterns: list[str] | None = None,
+        model_filter: str | None = None,
+    ) -> list[dict]:
         """Get aggregated results grouped by task."""
-        result = self.conn.execute("""
+        where_clauses = ["tr.error IS NULL"]
+        params: list = []
+
+        if model_filter:
+            where_clauses.append("LOWER(tr.model) LIKE ?")
+            params.append(f"%{model_filter.lower()}%")
+
+        if id_chain_patterns:
+            matching_task_ids = self._get_matching_task_ids(id_chain_patterns)
+            if not matching_task_ids:
+                return []
+            where_clauses.append("tr.task_id IN (SELECT UNNEST(?::VARCHAR[]))")
+            params.append(matching_task_ids)
+
+        where_sql = " AND ".join(where_clauses)
+
+        result = self.conn.execute(f"""
             SELECT 
                 t.display_name,
                 tr.task_id,
@@ -379,11 +389,51 @@ class BenchmarkStorage:
                 AVG(tr.validation_score) as avg_score
             FROM task_runs tr
             LEFT JOIN tasks t ON tr.task_id = t.task_id
-            WHERE tr.error IS NULL
+            WHERE {where_sql}
             GROUP BY t.display_name, tr.task_id
             ORDER BY avg_score DESC
-        """)
-        
+        """, params)
+
+        columns = [desc[0] for desc in result.description]
+        return [dict(zip(columns, row)) for row in result.fetchall()]
+
+    def get_task_runs_for_display(
+        self,
+        id_chain_patterns: list[str] | None = None,
+        model_filter: str | None = None,
+    ) -> list[dict]:
+        """Get task runs joined with task metadata for table display."""
+        where_clauses = ["tr.error IS NULL"]
+        params: list = []
+
+        if model_filter:
+            where_clauses.append("LOWER(tr.model) LIKE ?")
+            params.append(f"%{model_filter.lower()}%")
+
+        if id_chain_patterns:
+            matching_task_ids = self._get_matching_task_ids(id_chain_patterns)
+            if not matching_task_ids:
+                return []
+            where_clauses.append("tr.task_id IN (SELECT UNNEST(?::VARCHAR[]))")
+            params.append(matching_task_ids)
+
+        where_sql = " AND ".join(where_clauses)
+
+        result = self.conn.execute(f"""
+            SELECT
+                t.display_name,
+                t.id_chain,
+                tr.task_id,
+                tr.model,
+                tr.validation_passed,
+                tr.validation_score,
+                tr.duration_ms
+            FROM task_runs tr
+            LEFT JOIN tasks t ON tr.task_id = t.task_id
+            WHERE {where_sql}
+            ORDER BY t.display_name, tr.model
+        """, params)
+
         columns = [desc[0] for desc in result.description]
         return [dict(zip(columns, row)) for row in result.fetchall()]
 

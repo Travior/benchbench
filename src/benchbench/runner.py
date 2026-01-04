@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import litellm
 
-from benchbench.models import Model
+from benchbench.models import Model, get_model_config
 from benchbench.task import Task, TaskRun
 from benchbench.validation import ValidationResult
 
@@ -53,6 +53,7 @@ class TaskRunner:
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
                 reasoning={"enabled": True},
+                **get_model_config(model),
             )
 
             output = response.choices[0].message.content or ""  # type: ignore[union-attr]

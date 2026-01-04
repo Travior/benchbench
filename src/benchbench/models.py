@@ -33,12 +33,44 @@ class Model(StrEnum):
     GEMINI_3_FLASH_OR = "openrouter/google/gemini-3-flash-preview"
 
     OPUS_45_OR = "openrouter/anthropic/claude-opus-4.5"
+    OPUS_46_OR = "openrouter/anthropic/claude-opus-4.6"
 
     GPT_52_OR = "openrouter/openai/gpt-5.2"
 
     GLM_47_OR = "openrouter/z-ai/glm-4.7"
 
     MINIMAX_21_OR = "openrouter/minimax/minimax-m2.1"
+
+
+MODEL_CONFIG: dict[Model, dict] = {
+    Model.SONNET_45_OR: {
+        "extra_body": {
+            "provider": {
+                "order": ["Anthropic", "Perplexity", "OpenAI"],
+                "allow_fallbacks": True,
+            }
+        }
+    },
+    Model.GPT_51_NANO_OR: {
+        "transform": "middle-out",
+    },
+    Model.GLM_47_OR: {
+        "extra_body": {
+            "provider": {
+                "order": ["z-ai"],
+                "allow_fallbacks": False,
+            }
+        }
+    },
+}
+
+
+def get_model_config(model: Model) -> dict:
+    """Get the model-specific configuration dict for a given model.
+
+    Returns an empty dict if the model has no specific configuration.
+    """
+    return MODEL_CONFIG.get(model, {})
 
 
 def get_async_client() -> instructor.AsyncInstructor:
