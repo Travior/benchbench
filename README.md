@@ -59,9 +59,9 @@ Add an `execute.py` in a **leaf** task folder to replace that step. The runner c
 Minimal example (equivalent to the built-in behavior); see also [`examples/default_execute_executor.py`](examples/default_execute_executor.py).
 
 ```python
-from benchbench.execution import default_execute
+from benchbench.execution import ExecutionContext, default_execute
 
-async def execute(ctx):
+async def execute(ctx: ExecutionContext) -> str:
     return await default_execute(ctx)
 ```
 
