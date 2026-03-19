@@ -4,6 +4,8 @@ A simple scaffolding to run LLM tests and benchmarks. Define tasks in markdown, 
 
 ## Installation
 
+Think of this as a **scaffold** you clone and adapt, not a **library** you import and treat as fixed. **Clone** the repo and work from that checkout rather than installing it as an opaque package: the source stays yours to edit—runners, models, defaults, task layout—without republishing or fighting a black-box dependency.
+
 ```bash
 uv sync
 ```
