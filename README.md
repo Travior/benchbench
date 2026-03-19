@@ -1,6 +1,6 @@
 # benchbench
 
-A simple scaffolding to run LLM tests and benchmarks. Define tasks in markdown, add optional validators, and run them against multiple models with results stored in DuckDB.
+A simple scaffolding to run LLM tests and benchmarks. Define tasks in markdown, add optional executors and validators, and run them against multiple models with results stored in DuckDB.
 
 ## Installation
 
@@ -24,7 +24,8 @@ tasks/
 │   └── description.md      # Container (no messages)
 │   ├── task_1/
 │   │   └── description.md  # Leaf task with messages
-│   │   └── validate.py     # Optional validator
+│   │   └── execute.py      # Optional custom executor (generation)
+│   │   └── validate.py     # Optional validator (scoring)
 │   └── task_2/
 │       └── description.md
 └── category_b/
@@ -46,6 +47,29 @@ What is 2 + 2?
 ```
 
 Supported roles: `System`, `User`, `Assistant`
+
+### Executors (optional)
+
+By default, each task is run with a single LiteLLM completion using the messages from `description.md` and the CLI model.
+
+Add an `execute.py` in a **leaf** task folder to replace that step. The runner calls **`async def execute(ctx) -> str`** with an [`ExecutionContext`](src/benchbench/execution.py) (`ctx.task`, `ctx.model`, `ctx.run_config`, `ctx.messages`). After execution, any `validate.py` still runs on the returned string (executor first, then validator).
+
+Minimal example (equivalent to the built-in behavior); see also [`examples/default_execute_executor.py`](examples/default_execute_executor.py).
+
+```python
+from benchbench.execution import default_execute
+
+async def execute(ctx):
+    return await default_execute(ctx)
+```
+
+**Deduplication:** `execution_id` is derived from `task_id` and model only (executor choice is not part of the key). `bench run` skips task+model pairs that already have a row; saving only happens for missing pairs. To re-run after changing `execute.py` or `--executor-path`, remove the existing run(s) first (e.g. `bench db clean` or delete specific rows).
+
+To use one shared executor file for **all** tasks that do not define their own `execute.py`:
+
+```bash
+bench run gpt-5-nano --executor-path /path/to/my_execute.py
+```
 
 ### Validators
 
@@ -96,6 +120,9 @@ bench run gpt-5-nano -f "category_a::*" -f "*::specific_task"
 
 # Customize execution
 bench run gpt-5-nano --temperature 0.7 --concurrency 10
+
+# Default executor override for tasks without task-local execute.py
+bench run gpt-5-nano --executor-path ./my_default_execute.py
 ```
 
 Options:
@@ -104,6 +131,7 @@ Options:
 - `--concurrency N`: Max parallel API requests (default: 5)
 - `--temperature FLOAT`: Model temperature (default: 0.0)
 - `--tasks-dir PATH`: Tasks directory (default: `tasks`)
+- `--executor-path PATH`: Python file with `execute(ctx)` used when a task has no `execute.py`
 
 ### `bench show`
 
@@ -197,8 +225,9 @@ class Model(StrEnum):
 - **Discovery**: Recursively walks the `tasks/` directory to find benchmark tasks
 - **Parser**: Parses `description.md` files with YAML frontmatter and role-based markdown sections
 - **Runner**: Executes tasks against models with configurable concurrency
-- **Storage**: DuckDB-backed storage with deduplication based on task content hash + model
-- **Validation**: Optional async validators loaded from `validate.py` files
+- **Storage**: DuckDB-backed storage with deduplication by task content hash and model
+- **Execution**: Default LiteLLM completion or optional `execute.py` / `--executor-path`
+- **Validation**: Optional async validators loaded from `validate.py` files (run after execution)
 
 ## Development
 

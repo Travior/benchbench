@@ -5,6 +5,7 @@ Task discovery: recursively walk the tasks directory and collect runnable tasks.
 from pathlib import Path
 import logging
 
+from benchbench.execution import load_executor
 from benchbench.parser import parse_md
 from benchbench.task import Task
 from benchbench.validation import load_validator
@@ -74,12 +75,14 @@ def _discover_recursive(current_dir: Path, id_chain: list[str]) -> list[Task]:
     if md_config.content is not None and len(md_config.content.messages) > 0:
         logger.debug(f"Found leaf task at {current_dir}: {new_id_chain}")
         validator = load_validator(current_dir)
+        executor = load_executor(current_dir)
         return [
             Task(
                 path=current_dir,
                 id_chain=new_id_chain,
                 messages=md_config.content.messages,
                 validator=validator,
+                executor=executor,
             )
         ]
 

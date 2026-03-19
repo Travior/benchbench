@@ -7,6 +7,7 @@ from functools import cached_property
 from pathlib import Path
 import hashlib
 import json
+from typing import Any
 
 from benchbench.parser import Message
 from benchbench.validation import ValidationResult, ValidateFn
@@ -35,9 +36,9 @@ def compute_task_id(id_chain: list[str], messages_hash: str) -> str:
 def compute_execution_id(task_id: str, model: str) -> str:
     """
     Compute unique execution ID from task_id + model.
-    
-    Since task_id now includes the messages_hash, we don't need
-    to include it separately here.
+
+    Since task_id includes the messages_hash, executor choice is not part of
+    this key: re-running updates the same row (see storage ON CONFLICT).
     """
     combined = f"{task_id}::{model}"
     return hashlib.sha256(combined.encode()).hexdigest()
@@ -51,6 +52,7 @@ class Task:
     id_chain: list[str]  # e.g., ["adv_search", "next_match"]
     messages: list[Message]  # Prompt messages from parser
     validator: ValidateFn | None = None  # Loaded from validate.py if present
+    executor: Any = None  # Loaded from execute.py if present; async (ctx) -> str
 
     @cached_property
     def messages_hash(self) -> str:

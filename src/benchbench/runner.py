@@ -7,11 +7,16 @@ Supports concurrent execution via asyncio.
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 
-import litellm
-
-from benchbench.models import Model, get_model_config
+from benchbench.execution import (
+    ExecutionContext,
+    RunConfig,
+    build_messages_for_litellm,
+    resolve_executor_for_task,
+)
+from benchbench.models import Model
 from benchbench.task import Task, TaskRun
 from benchbench.validation import ValidationResult
 
@@ -19,19 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class RunConfig:
-    """Configuration for a benchmark run."""
-
-    temperature: float = 0.0
-    max_tokens: int | None = None
-    max_concurrency: int = 5  # Max parallel API calls
-
-
 class TaskRunner:
     """Executes benchmark tasks against LLM models."""
 
-    def __init__(self, config: RunConfig | None = None):
-        self.config = config or RunConfig()
+    config: RunConfig = field(default_factory=RunConfig)
+    default_executor_path: Path | None = None
 
     async def run_task(self, task: Task, model: Model) -> TaskRun:
         """
@@ -41,22 +38,17 @@ class TaskRunner:
         """
         start_time = time.perf_counter()
 
-        # Convert task messages to litellm format
-        messages = [
-            {"role": msg.role.value, "content": msg.content} for msg in task.messages
-        ]
+        executor_fn = resolve_executor_for_task(task, self.default_executor_path)
+        messages = build_messages_for_litellm(task.messages)
+        ctx = ExecutionContext(
+            task=task,
+            model=model,
+            run_config=self.config,
+            messages=messages,
+        )
 
         try:
-            response = await litellm.acompletion(
-                model=model.value,
-                messages=messages,
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens,
-                reasoning={"enabled": True},
-                **get_model_config(model),
-            )
-
-            output = response.choices[0].message.content or ""  # type: ignore[union-attr]
+            output = await executor_fn(ctx)
             duration_ms = (time.perf_counter() - start_time) * 1000
 
             # Run validation if available

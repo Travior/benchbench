@@ -1,6 +1,9 @@
 """
 Validation interface for benchmark tasks.
 
+Validation runs after generation: optional per-task `execute.py` produces output,
+then `validate.py` (if present) scores that output.
+
 Each task folder can contain a `validate.py` with an async `validate` function:
 
     from benchbench.validation import ValidationResult, pending_manual

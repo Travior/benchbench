@@ -2,7 +2,7 @@
 DuckDB storage for benchmark results.
 
 Provides persistent storage for task runs with deduplication based on
-execution_id = hash(task_id + messages_hash + model).
+execution_id = hash(task_id + model).
 
 Usage:
     from benchbench.storage import BenchmarkStorage
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import duckdb
 
-from benchbench.task import Task, TaskRun
+from benchbench.task import Task, TaskRun, compute_execution_id
 
 # Current schema version - bump this when adding migrations
 SCHEMA_VERSION = "0.2.0"
@@ -180,8 +180,8 @@ class BenchmarkStorage:
         potential: list[tuple[Task, str, str]] = []  # (task, model, exec_id)
         for task in tasks:
             for model in models:
-                execution_id = task.execution_id(model)
-                potential.append((task, model, execution_id))
+                eid = task.execution_id(model)
+                potential.append((task, model, eid))
 
         # Check which already exist
         all_exec_ids = [p[2] for p in potential]
@@ -211,7 +211,7 @@ class BenchmarkStorage:
         Returns:
             The execution_id of the saved run.
         """
-        execution_id = task.execution_id(task_run.model)
+        execution_id = compute_execution_id(task_run.task_id, task_run.model)
 
         # Extract validation fields
         validation_passed = None

@@ -16,8 +16,9 @@ from rich.progress import (
 
 from benchbench.cli.filtering import filter_tasks
 from benchbench.discovery import discover_tasks
+from benchbench.execution import RunConfig
 from benchbench.models import Model
-from benchbench.runner import RunConfig, TaskRunner
+from benchbench.runner import TaskRunner
 from benchbench.storage import BenchmarkStorage
 
 console = Console()
@@ -84,6 +85,15 @@ def resolve_model(name: str) -> Model | None:
     show_default=True,
     help="Path to the tasks directory.",
 )
+@click.option(
+    "--executor-path",
+    type=click.Path(path_type=Path, exists=True, dir_okay=False),
+    default=None,
+    help=(
+        "Python file with async def execute(ctx) -> str. "
+        "Used as the default executor for tasks without task-local execute.py."
+    ),
+)
 def run(
     models: tuple[str, ...],
     filters: tuple[str, ...],
@@ -91,6 +101,7 @@ def run(
     concurrency: int,
     temperature: float,
     tasks_dir: str,
+    executor_path: Path | None,
 ) -> None:
     """
     Run benchmarks for the specified MODELS.
@@ -162,7 +173,8 @@ def run(
 
         # Run benchmarks with progress display
         runner = TaskRunner(
-            RunConfig(temperature=temperature, max_concurrency=concurrency)
+            config=RunConfig(temperature=temperature, max_concurrency=concurrency),
+            default_executor_path=executor_path,
         )
 
         # Group missing by task for cleaner execution
