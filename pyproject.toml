@@ -28,3 +28,9 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.0.1",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: fast, isolated or narrow-contract tests",
+    "integration: multi-component tests (real parse, filesystem, runner)",
+]

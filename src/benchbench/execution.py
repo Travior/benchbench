@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-from collections.abc import Awaitable
+from collections.abc import Coroutine
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import litellm
 
@@ -45,7 +45,7 @@ class ExecutionContext:
 class ExecutorFn(Protocol):
     """Protocol for async executor functions."""
 
-    def __call__(self, ctx: ExecutionContext) -> Awaitable[str]: ...
+    def __call__(self, ctx: ExecutionContext) -> Coroutine[Any, Any, str]: ...
 
 
 async def default_execute(ctx: ExecutionContext) -> str:

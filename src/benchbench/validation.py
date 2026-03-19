@@ -30,7 +30,7 @@ Each task folder can contain a `validate.py` with an async `validate` function:
         return pending_manual("Does the response correctly explain the algorithm?")
 """
 
-from collections.abc import Awaitable
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -86,7 +86,7 @@ def pending_manual(rubric: str | None = None) -> ValidationResult:
 class ValidateFn(Protocol):
     """Protocol for async validation functions."""
 
-    def __call__(self, output: str) -> Awaitable[ValidationResult]: ...
+    def __call__(self, output: str) -> Coroutine[Any, Any, ValidationResult]: ...
 
 
 def load_validator(task_dir: Path) -> ValidateFn | None:
