@@ -54,7 +54,7 @@ Supported roles: `System`, `User`, `Assistant`
 
 By default, each task is run with a single LiteLLM completion using the messages from `description.md` and the CLI model.
 
-Add an `execute.py` in a **leaf** task folder to replace that step. The runner calls **`async def execute(ctx) -> str`** with an [`ExecutionContext`](src/benchbench/execution.py) (`ctx.task`, `ctx.model`, `ctx.run_config`, `ctx.messages`). After execution, any `validate.py` still runs on the returned string (executor first, then validator).
+Add an `execute.py` in a **leaf** task folder to replace that step. The runner calls **`async def execute(ctx) -> str`** with an [`ExecutionContext`](src/benchbench/execution.py) (`ctx.task`, `ctx.model`, `ctx.run_config`, `ctx.messages`). `ctx.task.frontmatter` is a Pydantic `TaskFrontmatter` ([`parser.py`](src/benchbench/parser.py)): a required string `id` plus any extra YAML keys (`extra="allow"`). Use `.model_dump()` for a plain dict. It is not written to the database. After execution, any `validate.py` still runs on the returned string (executor first, then validator).
 
 Minimal example (equivalent to the built-in behavior); see also [`examples/default_execute_executor.py`](examples/default_execute_executor.py).
 

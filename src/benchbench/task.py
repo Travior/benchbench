@@ -9,7 +9,7 @@ import hashlib
 import json
 from typing import Any
 
-from benchbench.parser import Message
+from benchbench.parser import Message, TaskFrontmatter
 from benchbench.validation import ValidationResult, ValidateFn
 
 
@@ -51,6 +51,7 @@ class Task:
     path: Path  # Filesystem path to task directory
     id_chain: list[str]  # e.g., ["adv_search", "next_match"]
     messages: list[Message]  # Prompt messages from parser
+    frontmatter: TaskFrontmatter | None = None  # Leaf description.md; not persisted
     validator: ValidateFn | None = None  # Loaded from validate.py if present
     executor: Any = None  # Loaded from execute.py if present; async (ctx) -> str
 

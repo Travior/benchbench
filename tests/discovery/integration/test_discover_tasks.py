@@ -27,6 +27,22 @@ def test_discover_missing_description(tmp_path):
         discover_tasks(tmp_path)
 
 
+def test_discover_leaf_extra_frontmatter(tmp_path):
+    leaf = tmp_path / "meta_leaf"
+    write_description(
+        leaf,
+        "---\nid: leaf_id\ncustom: 42\ntags: [a, b]\n---\n\n# User\nhi\n",
+    )
+    tasks = discover_tasks(tmp_path)
+    assert len(tasks) == 1
+    fm = tasks[0].frontmatter
+    assert fm is not None
+    assert fm.id == "leaf_id"
+    dumped = fm.model_dump()
+    assert dumped["custom"] == 42
+    assert dumped["tags"] == ["a", "b"]
+
+
 def test_discover_invalid_description(tmp_path):
     cat = tmp_path / "cat"
     cat.mkdir()
@@ -37,6 +53,23 @@ def test_discover_invalid_description(tmp_path):
         discover_tasks(tmp_path)
 
 
+def test_discover_whitespace_only_id_rejected(tmp_path):
+    leaf = tmp_path / "bad_id"
+    write_description(leaf, "---\nid: '   '\n---\n\n# System\nx\n")
+    with pytest.raises(DiscoveryError, match="Failed to parse"):
+        discover_tasks(tmp_path)
+
+
+def test_discover_id_trimmed_in_frontmatter(tmp_path):
+    leaf = tmp_path / "trim"
+    write_description(leaf, "---\nid: '  spaced  '\n---\n\n# System\nx\n")
+    tasks = discover_tasks(tmp_path)
+    assert len(tasks) == 1
+    assert tasks[0].frontmatter is not None
+    assert tasks[0].frontmatter.id == "spaced"
+    assert tasks[0].id_chain == ["spaced"]
+
+
 def test_discover_single_leaf(tmp_path):
     leaf = tmp_path / "my_leaf"
     write_description(leaf, leaf_task_markdown("leaf_id", "hello"))
@@ -44,6 +77,9 @@ def test_discover_single_leaf(tmp_path):
     tasks = discover_tasks(tmp_path)
     assert len(tasks) == 1
     t = tasks[0]
+    assert t.frontmatter is not None
+    assert t.frontmatter.id == "leaf_id"
+    assert t.frontmatter.model_dump() == {"id": "leaf_id"}
     assert t.id_chain == ["leaf_id"]
     assert t.path.resolve() == leaf.resolve()
     assert len(t.messages) == 1

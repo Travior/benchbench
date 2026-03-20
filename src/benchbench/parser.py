@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from typing import Generator
 from enum import StrEnum
 from pathlib import Path
@@ -25,12 +25,27 @@ class Content(BaseModel):
     messages: list[Message]
 
 
-class Frontmatter(BaseModel):
+class TaskFrontmatter(BaseModel):
+    """YAML frontmatter from description.md: required `id` plus any other keys (executor metadata)."""
+
+    model_config = ConfigDict(extra="allow")
     id: str
+
+    @field_validator("id")
+    @classmethod
+    def id_non_empty_stripped(cls, v: object) -> str:
+        if not isinstance(v, str):
+            raise ValueError("id must be a string")
+        s = v.strip()
+        if not s:
+            raise ValueError("id must be non-empty")
+        return s
 
 
 class MDConfig(BaseModel):
-    frontmatter: Frontmatter
+    """Parsed description.md: frontmatter + optional messages."""
+
+    frontmatter: TaskFrontmatter
     content: Content | None
 
 
@@ -76,11 +91,13 @@ def parse_md(path: Path) -> MDConfig | None:
     frontmatter_pos_end = text.find("---\n", frontmatter_pos_start + 4)
     frontmatter_content = text[frontmatter_pos_start + 4 : frontmatter_pos_end].strip()
     obj = safe_load(frontmatter_content)
-
+    if not isinstance(obj, dict):
+        logger.error(f"Frontmatter must be a YAML mapping in file: {path}")
+        return None
     try:
-        frontmatter = Frontmatter.model_validate(obj)
-    except ValidationError:
-        logger.error(f"Unable to validate frontmatter object in file: {str(path)}")
+        frontmatter = TaskFrontmatter.model_validate(obj)
+    except ValidationError as e:
+        logger.error("Unable to validate frontmatter in file %s: %s", path, e)
         return None
 
     # After frontmatter we have md text content

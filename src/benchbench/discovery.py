@@ -81,6 +81,7 @@ def _discover_recursive(current_dir: Path, id_chain: list[str]) -> list[Task]:
                 path=current_dir,
                 id_chain=new_id_chain,
                 messages=md_config.content.messages,
+                frontmatter=md_config.frontmatter.model_copy(deep=True),
                 validator=validator,
                 executor=executor,
             )
