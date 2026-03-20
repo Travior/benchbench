@@ -161,6 +161,25 @@ def test_discover_skips_hidden_directories(tmp_path):
     assert tasks[0].id_chain == ["visible_id"]
 
 
+def test_discover_skips_dunder_prefixed_directories(tmp_path):
+    """__pycache__ and similar must not be traversed (no description.md)."""
+    (tmp_path / "__pycache__").mkdir()
+
+    visible = tmp_path / "visible"
+    write_description(visible, leaf_task_markdown("visible_id"))
+
+    suite = tmp_path / "suite"
+    write_description(suite, parent_task_markdown("parent_id"))
+    (suite / "__pycache__").mkdir()
+    inner = suite / "inner"
+    write_description(inner, leaf_task_markdown("inner_id", "body"))
+
+    tasks = discover_tasks(tmp_path)
+    chains = {tuple(t.id_chain) for t in tasks}
+    assert chains == {("visible_id",), ("parent_id", "inner_id")}
+    assert len(tasks) == 2
+
+
 def test_discover_bad_execute_syntax_propagates(tmp_path):
     leaf = tmp_path / "bad_exec"
     write_description(leaf, leaf_task_markdown("bad"))

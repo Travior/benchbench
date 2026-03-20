@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 DESCRIPTION_FILE = "description.md"
 
 
+def _skip_discovery_dir(name: str) -> bool:
+    """Skip hidden dirs and Python/metadata dirs like __pycache__."""
+    return name.startswith(".") or name.startswith("__")
+
+
 class DiscoveryError(Exception):
     """Raised when task discovery fails."""
 
@@ -44,7 +49,7 @@ def discover_tasks(root: Path) -> list[Task]:
     subdirs = sorted([d for d in root.iterdir() if d.is_dir()])
 
     for subdir in subdirs:
-        if subdir.name.startswith("."):
+        if _skip_discovery_dir(subdir.name):
             continue
         tasks.extend(_discover_recursive(subdir, id_chain=[]))
 
@@ -98,8 +103,7 @@ def _discover_recursive(current_dir: Path, id_chain: list[str]) -> list[Task]:
         return []
 
     for subdir in subdirs:
-        # Skip hidden directories
-        if subdir.name.startswith("."):
+        if _skip_discovery_dir(subdir.name):
             continue
         tasks.extend(_discover_recursive(subdir, new_id_chain))
 
