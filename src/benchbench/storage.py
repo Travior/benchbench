@@ -23,9 +23,6 @@ import duckdb
 
 from benchbench.task import Task, TaskRun, compute_execution_id
 
-# Current schema version - bump this when adding migrations
-SCHEMA_VERSION = "0.2.0"
-
 
 class BenchmarkStorage:
     """DuckDB-backed storage for benchmark results."""
@@ -43,14 +40,6 @@ class BenchmarkStorage:
 
     def _init_schema(self) -> None:
         """Create tables if they don't exist."""
-        # Schema version tracking
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version VARCHAR PRIMARY KEY,
-                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 task_id VARCHAR PRIMARY KEY,
@@ -82,36 +71,6 @@ class BenchmarkStorage:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
-        # For new databases, mark as current version
-        existing = self.conn.execute(
-            "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
-        ).fetchone()
-        if existing is None:
-            # Check if this is a fresh DB (no task_runs) or existing pre-versioning DB
-            has_runs = self.conn.execute("SELECT COUNT(*) FROM task_runs").fetchone()
-            if has_runs and has_runs[0] == 0:
-                # Fresh database - mark as current version
-                self.conn.execute(
-                    "INSERT INTO schema_version (version) VALUES (?)",
-                    [SCHEMA_VERSION]
-                )
-
-    def get_schema_version(self) -> str | None:
-        """
-        Get the current schema version from the database.
-        
-        Returns:
-            Version string (e.g., "0.2.0") or None if pre-versioning database.
-        """
-        try:
-            result = self.conn.execute(
-                "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1"
-            ).fetchone()
-            return result[0] if result else None
-        except duckdb.CatalogException:
-            # schema_version table doesn't exist - pre-versioning database
-            return None
 
     def close(self) -> None:
         """Close the database connection."""

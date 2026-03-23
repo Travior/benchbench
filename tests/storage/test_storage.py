@@ -137,15 +137,14 @@ class TestComputeTaskId:
 
 
 class TestBenchmarkStorage:
-    def test_init_creates_tables(self, storage: BenchmarkStorage):
-        """Storage should create tables on init."""
+    def test_init_creates_scaffold_tables(self, storage: BenchmarkStorage):
+        """Storage should create only the scaffold tables it uses."""
         tables = storage.conn.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
         ).fetchall()
         table_names = {t[0] for t in tables}
-        
-        assert "tasks" in table_names
-        assert "task_runs" in table_names
+
+        assert table_names == {"tasks", "task_runs"}
 
     def test_context_manager(self):
         """Storage should work as context manager."""
